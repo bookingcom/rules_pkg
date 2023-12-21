@@ -28,3 +28,15 @@ pkg_rpm(
     spec_file = "test_rpm.spec",
     version = "1",
 )
+
+pkg_rpm(
+    name = "test-rpm-sources",
+    data = [
+        "//pkg/legacy:rpm.bzl",
+    ],
+    debug = 1,
+    release = "0",
+    spec_file = "test_rpm_source.spec",
+    version = "1",
+    files_as_sources = True,
+)

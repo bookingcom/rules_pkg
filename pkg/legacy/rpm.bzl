@@ -96,6 +96,8 @@ def _pkg_rpm_impl(ctx):
     substitutions = {}
     for data_file in ctx.files.data:
         key = "{%s}" % data_file.basename
+        if key in substitutions:
+            fail("Duplicated entry for %s, basename has to be unique" % key)
         substitutions[key] = data_file.path
     ctx.actions.expand_template(
         template = ctx.file.spec_file,
