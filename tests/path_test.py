@@ -14,12 +14,15 @@
 """Testing for helper functions."""
 
 import collections
-import imp
 import os
 import unittest
+from importlib.util import spec_from_loader, module_from_spec
+from importlib.machinery import SourceFileLoader
 
 
-pkg_bzl = imp.load_source('pkg_bzl', 'pkg/path.bzl')
+spec = spec_from_loader("pkg_bzl", SourceFileLoader("pkg_bzl", "pkg/path.bzl"))
+pkg_bzl = module_from_spec(spec)
+spec.loader.exec_module(pkg_bzl)
 
 Owner = collections.namedtuple('Owner', ['workspace_name', 'workspace_root'])
 Root = collections.namedtuple('Root', ['path'])
