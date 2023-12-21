@@ -107,6 +107,9 @@ def _pkg_rpm_impl(ctx):
 
     args.append("--out_file=" + ctx.outputs.rpm.path)
 
+    if ctx.attr.files_as_sources:
+        args.append("--files-as-sources")
+
     # Add data files.
     if ctx.file.changelog:
         files.append(ctx.file.changelog)
@@ -185,6 +188,7 @@ pkg_rpm = rule(
         "source_date_epoch_file": attr.label(allow_single_file = True),
         "source_date_epoch": attr.int(),
         "debug": attr.bool(default = False),
+        "files_as_sources": attr.bool(default = False),
 
         # Implicit dependencies.
         "rpmbuild_path": attr.string(),  # deprecated
@@ -242,5 +246,6 @@ Args:
     timestamps.
   source_date_epoch_file: File containing the SOURCE_DATE_EPOCH value.  Sets
     `%clamp_mtime_to_source_date_epoch` like with "source_date_epoch".
+
   data: List all files to be included in the package here.
 """

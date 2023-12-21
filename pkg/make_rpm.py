@@ -56,25 +56,17 @@ def Cd(newdir, cleanup=lambda: True):
     os.chdir(prevdir)
     cleanup()
 
-
 @contextlib.contextmanager
-def Tempdir():
+def Tempdir(**kwargs):
   """Create a new temporary directory and change to it.
-
-  The temporary directory will be removed when the context exits.
 
   Yields:
     The full path of the temporary directory.
   """
 
-  dirpath = tempfile.mkdtemp()
-
-  def Cleanup():
-    shutil.rmtree(dirpath)
-
-  with Cd(dirpath, Cleanup):
-    yield dirpath
-
+  with tempfile.TemporaryDirectory(**kwargs) as dirpath:
+    with Cd(dirpath):
+      yield dirpath
 
 WROTE_FILE_RE = re.compile(r'Wrote: (?P<rpm_path>.+)', re.MULTILINE)
 
@@ -180,7 +172,7 @@ class RpmBuilder(object):
 
   def __init__(self, name, version, release, arch, rpmbuild_path,
                source_date_epoch=None,
-               debug=False):
+               debug=False, files_as_sources=False):
     self.name = name
     self.version = helpers.GetFlagValue(version)
     self.release = helpers.GetFlagValue(release)
@@ -190,6 +182,7 @@ class RpmBuilder(object):
     self.rpm_path = None
     self.source_date_epoch = helpers.GetFlagValue(source_date_epoch)
     self.debug = debug
+    self.files_as_sources = files_as_sources
 
     # The below are initialized in SetupWorkdir()
     self.spec_file = None
@@ -221,6 +214,19 @@ class RpmBuilder(object):
       else:
         self.files.append(full_path)
 
+  def SetupWorkdirAsBuild(self, original_dir):
+    # Copy the to-be-packaged files into the BUILD directory
+    for f in self.files:
+      dst_dir = os.path.join(RpmBuilder.BUILD_DIR, os.path.dirname(f))
+      if not os.path.exists(dst_dir):
+        os.makedirs(dst_dir, 0o777)
+      shutil.copy(os.path.join(original_dir, f), dst_dir)
+
+  def SetupWorkdirAsSources(self, original_dir):
+    # Copy the to-be-built files into the SOURCES directory
+    for f in self.files:
+      shutil.copy(os.path.join(original_dir, f), RpmBuilder.SOURCE_DIR)
+
   def SetupWorkdir(self,
                    spec_file,
                    original_dir,
@@ -233,7 +239,8 @@ class RpmBuilder(object):
                    postun_scriptlet_path=None,
                    posttrans_scriptlet_path=None,
                    changelog_file=None,
-                   file_list_path=None):
+                   file_list_path=None,
+                   files_as_sources=False):
     """Create the needed structure in the workdir."""
 
     # Create the rpmbuild-expected directory structure.
@@ -241,12 +248,10 @@ class RpmBuilder(object):
       if not os.path.exists(name):
         os.makedirs(name, 0o777)
 
-    # Copy the to-be-packaged files into the BUILD directory
-    for f in self.files:
-      dst_dir = os.path.join(RpmBuilder.BUILD_DIR, os.path.dirname(f))
-      if not os.path.exists(dst_dir):
-        os.makedirs(dst_dir, 0o777)
-      shutil.copy(os.path.join(original_dir, f), dst_dir)
+    if not files_as_sources:
+      self.SetupWorkdirAsBuild(original_dir=original_dir)
+    else:
+      self.SetupWorkdirAsSources(original_dir=original_dir)
 
     # The code below is related to assembling the RPM spec template and
     # everything else it needs to produce a valid RPM package.
@@ -446,7 +451,8 @@ class RpmBuilder(object):
     original_dir = os.getcwd()
     spec_file = os.path.join(original_dir, spec_file)
     out_file = os.path.join(original_dir, out_file)
-    with Tempdir() as dirname:
+
+    with Tempdir(prefix = "rules_pkg-", delete = not self.debug) as dirname:
       self.SetupWorkdir(spec_file,
                         original_dir,
                         preamble_file=preamble_file,
@@ -458,7 +464,8 @@ class RpmBuilder(object):
                         preun_scriptlet_path=preun_scriptlet_path,
                         postun_scriptlet_path=postun_scriptlet_path,
                         posttrans_scriptlet_path=posttrans_scriptlet_path,
-                        changelog_file=changelog_file)
+                        changelog_file=changelog_file,
+                        files_as_sources=self.files_as_sources)
       status = self.CallRpmBuild(dirname, rpmbuild_args or [])
       self.SaveResult(out_file)
 
@@ -511,6 +518,8 @@ def main(argv):
                       help='File containing the RPM %posttrans scriptlet, if to be substituted')
   parser.add_argument('--changelog',
                       help='File containing the RPM changelog text')
+  parser.add_argument('--files-as-sources', action='store_true', default=False,
+                      help='Treat files as SOURCES and not as BUILD in rpmbuild')
 
   parser.add_argument('--rpmbuild_arg', dest='rpmbuild_args', action='append',
                       help='Any additional arguments to pass to rpmbuild')
@@ -523,7 +532,7 @@ def main(argv):
                          options.version, options.release,
                          options.arch, options.rpmbuild,
                          source_date_epoch=options.source_date_epoch,
-                         debug=options.debug)
+                         debug=options.debug, files_as_sources=options.files_as_sources)
     builder.AddFiles(options.files)
     return builder.Build(options.spec_file, options.out_file,
                          preamble_file=options.preamble,
